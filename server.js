@@ -8,12 +8,19 @@ import clientesRoutes from "./routes/clientes.js";
 import pedidosRoutes from "./routes/pedidos.js";
 import pagosRoutes from "./routes/pagos.js";
 import usuariosRoutes from "./routes/usuarios.js";
-import resumenRoutes from "./routes/resumen.js";
+import categoriasRoutes from "./routes/categorias.js"
+import homeRoutes from "./routes/home.js";
 
 dotenv.config();
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: [
+    'http://localhost:5173', // Desarrollo local
+    'https://tu-app.vercel.app', // Tu app en Vercel
+    'https://tu-dominio.com' // Si tienes dominio propio
+  ]
+}));
 app.use(express.json());
 
 export const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
@@ -24,7 +31,9 @@ app.use("/api/clientes", clientesRoutes);
 app.use("/api/pedidos", pedidosRoutes);
 app.use("/api/pagos", pagosRoutes);
 app.use("/api/usuarios", usuariosRoutes);
-app.use("/api/resumen", resumenRoutes);
+app.use("/api/categorias", categoriasRoutes);
+app.use("/api/home", homeRoutes)
+
 
 app.post("/api/login", async (req, res) => {
   const { email, contrasena } = req.body;
