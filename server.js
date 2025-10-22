@@ -17,10 +17,10 @@ const app = express();
 app.use(cors({
   origin: [
     'http://localhost:5173', // Desarrollo local
-    'https://tu-app.vercel.app', // Tu app en Vercel
-    'https://tu-dominio.com' // Si tienes dominio propio
+    'https://front-hog-ele.vercel.app' // frontend en Vercel
   ]
 }));
+
 app.use(express.json());
 
 export const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
