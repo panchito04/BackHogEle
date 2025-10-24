@@ -8,8 +8,11 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.75.0",
+    "cloudinary": "^2.8.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "multer": "^2.0.2",
+    "streamifier": "^0.1.1"
   }
 }

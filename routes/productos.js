@@ -1,9 +1,12 @@
 import express from "express";
+import multer from "multer";
+import streamifier from "streamifier";
+import cloudinary from "../cloudinary.js";
 import { supabase } from "../server.js";
 
 const router = express.Router();
+const upload = multer({ storage: multer.memoryStorage() });
 
-// Obtener todos los productos con su categoría y estado de venta
 router.get("/", async (req, res) => {
   try {
     const { data: productos, error } = await supabase
@@ -17,17 +20,13 @@ router.get("/", async (req, res) => {
         )
       `)
       .order("fecha_creacion", { ascending: false });
-
     if (error) throw error;
-
-    // Para cada producto, verificar si ha sido vendido
     const productosConEstado = await Promise.all(
       productos.map(async (producto) => {
         const { count: vendido } = await supabase
           .from("detalle_pedido")
           .select("*", { count: "exact", head: true })
           .eq("id_producto", producto.id_producto);
-
         return {
           ...producto,
           vendido: vendido > 0,
@@ -35,7 +34,6 @@ router.get("/", async (req, res) => {
         };
       })
     );
-
     res.json(productosConEstado);
   } catch (error) {
     console.error("Error al obtener productos:", error);
@@ -43,7 +41,6 @@ router.get("/", async (req, res) => {
   }
 });
 
-// Obtener producto por id con estado de venta
 router.get("/:id", async (req, res) => {
   try {
     const { data: producto, error } = await supabase
@@ -58,15 +55,11 @@ router.get("/:id", async (req, res) => {
       `)
       .eq("id_producto", req.params.id)
       .single();
-
     if (error) throw error;
-
-    // Verificar si ha sido vendido
     const { count: vendido } = await supabase
       .from("detalle_pedido")
       .select("*", { count: "exact", head: true })
       .eq("id_producto", producto.id_producto);
-
     res.json({
       ...producto,
       vendido: vendido > 0,
@@ -78,23 +71,16 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// Obtener estadísticas de productos
 router.get("/stats/resumen", async (req, res) => {
   try {
-    // Total de productos
     const { count: total } = await supabase
       .from("producto")
       .select("*", { count: "exact", head: true });
-
-    // Productos vendidos
     const { data: vendidos } = await supabase
       .from("detalle_pedido")
       .select("id_producto");
-
     const totalVendidos = new Set(vendidos?.map(d => d.id_producto)).size;
     const disponibles = total - totalVendidos;
-
-    // Productos por categoría
     const { data: categorias } = await supabase
       .from("producto")
       .select(`
@@ -103,13 +89,11 @@ router.get("/stats/resumen", async (req, res) => {
           nombre
         )
       `);
-
     const porCategoria = {};
     categorias?.forEach(p => {
       const catNombre = p.categoria?.nombre || 'Sin categoría';
       porCategoria[catNombre] = (porCategoria[catNombre] || 0) + 1;
     });
-
     res.json({
       total: total || 0,
       vendidos: totalVendidos,
@@ -122,34 +106,46 @@ router.get("/stats/resumen", async (req, res) => {
   }
 });
 
-// Crear producto único
-router.post("/", async (req, res) => {
+router.post("/", upload.single("imagen"), async (req, res) => {
   try {
-    const { nombre, descripcion, precio, id_categoria, imagen_url } = req.body;
-
-    // Validar que no exista un producto idéntico
+    const { nombre, descripcion, precio, id_categoria } = req.body;
+    let imagen_url = req.body.imagen_url || null;
+    if (req.file) {
+      const streamUpload = (buffer) => {
+        return new Promise((resolve, reject) => {
+          const stream = cloudinary.uploader.upload_stream(
+            {
+              folder: "productos",
+              resource_type: "image",
+              format: "jpg",
+              transformation: [
+                { height: 720, crop: "limit" },
+                { quality: "auto" }
+              ]
+            },
+            (error, result) => {
+              if (result) resolve(result);
+              else reject(error);
+            }
+          );
+          streamifier.createReadStream(buffer).pipe(stream);
+        });
+      };
+      const result = await streamUpload(req.file.buffer);
+      imagen_url = result.secure_url;
+    }
     const { data: existente } = await supabase
       .from("producto")
       .select("id_producto")
       .eq("nombre", nombre)
       .eq("precio", precio)
       .maybeSingle();
-
     if (existente) {
-      return res.status(400).json({ 
-        error: "Ya existe un producto con el mismo nombre y precio" 
-      });
+      return res.status(400).json({ error: "Ya existe un producto con el mismo nombre y precio" });
     }
-
     const { data, error } = await supabase
       .from("producto")
-      .insert([{ 
-        nombre, 
-        descripcion, 
-        precio, 
-        id_categoria, 
-        imagen_url 
-      }])
+      .insert([{ nombre, descripcion, precio, id_categoria, imagen_url }])
       .select(`
         *,
         categoria:id_categoria (
@@ -159,9 +155,7 @@ router.post("/", async (req, res) => {
         )
       `)
       .single();
-
     if (error) throw error;
-
     res.json({
       ...data,
       vendido: false,
@@ -173,23 +167,41 @@ router.post("/", async (req, res) => {
   }
 });
 
-// Actualizar producto
-router.put("/:id", async (req, res) => {
+router.put("/:id", upload.single("imagen"), async (req, res) => {
   try {
-    const { nombre, descripcion, precio, id_categoria, imagen_url } = req.body;
-
-    // Verificar si el producto ha sido vendido
+    const { nombre, descripcion, precio, id_categoria } = req.body;
     const { count: vendido } = await supabase
       .from("detalle_pedido")
       .select("*", { count: "exact", head: true })
       .eq("id_producto", req.params.id);
-
     if (vendido > 0) {
-      return res.status(400).json({ 
-        error: "No se puede editar un producto que ya ha sido vendido" 
-      });
+      return res.status(400).json({ error: "No se puede editar un producto que ya ha sido vendido" });
     }
-
+    let imagen_url = req.body.imagen_url || null;
+    if (req.file) {
+      const streamUpload = (buffer) => {
+        return new Promise((resolve, reject) => {
+          const stream = cloudinary.uploader.upload_stream(
+            {
+              folder: "productos",
+              resource_type: "image",
+              format: "jpg",
+              transformation: [
+                { height: 720, crop: "limit" },
+                { quality: "auto" }
+              ]
+            },
+            (error, result) => {
+              if (result) resolve(result);
+              else reject(error);
+            }
+          );
+          streamifier.createReadStream(buffer).pipe(stream);
+        });
+      };
+      const result = await streamUpload(req.file.buffer);
+      imagen_url = result.secure_url;
+    }
     const { data, error } = await supabase
       .from("producto")
       .update({ nombre, descripcion, precio, id_categoria, imagen_url })
@@ -203,9 +215,7 @@ router.put("/:id", async (req, res) => {
         )
       `)
       .single();
-
     if (error) throw error;
-
     res.json({
       ...data,
       vendido: false,
@@ -217,28 +227,20 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-// Eliminar producto
 router.delete("/:id", async (req, res) => {
   try {
-    // Verificar si el producto ha sido vendido
     const { count: vendido } = await supabase
       .from("detalle_pedido")
       .select("*", { count: "exact", head: true })
       .eq("id_producto", req.params.id);
-
     if (vendido > 0) {
-      return res.status(400).json({ 
-        error: "No se puede eliminar un producto que ya ha sido vendido" 
-      });
+      return res.status(400).json({ error: "No se puede eliminar un producto que ya ha sido vendido" });
     }
-
     const { error } = await supabase
       .from("producto")
       .delete()
       .eq("id_producto", req.params.id);
-
     if (error) throw error;
-
     res.json({ message: "Producto eliminado exitosamente" });
   } catch (error) {
     console.error("Error al eliminar producto:", error);
