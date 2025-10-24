@@ -118,9 +118,12 @@ router.post("/", upload.single("imagen"), async (req, res) => {
               folder: "productos",
               resource_type: "image",
               format: "jpg",
+
+              //Calidad de la imagen 
               transformation: [
-                { height: 720, crop: "limit" },
-                { quality: "auto" }
+                { width: 800, height: 800, crop: "limit" }, // limita tamaño máximo
+                { quality: "auto:eco" },                    // calidad eficiente
+                { fetch_format: "jpg" }                     // fuerza formato más liviano
               ]
             },
             (error, result) => {
