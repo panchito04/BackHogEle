@@ -12,6 +12,7 @@ import pagosRoutes from "./routes/pagos.js";
 import usuariosRoutes from "./routes/usuarios.js";
 import categoriasRoutes from "./routes/categorias.js";
 import homeRoutes from "./routes/home.js";
+import cajasRoutes from "./routes/cajas.js";
 
 const app = express();
 
@@ -34,6 +35,7 @@ app.use("/api/pagos", pagosRoutes);
 app.use("/api/usuarios", usuariosRoutes);
 app.use("/api/categorias", categoriasRoutes);
 app.use("/api/home", homeRoutes);
+app.use("/api/cajas", cajasRoutes);
 
 app.post("/api/login", async (req, res) => {
   const { email, contrasena } = req.body;
