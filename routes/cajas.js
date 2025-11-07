@@ -1,6 +1,7 @@
 import express from "express";
 import { supabase } from "../server.js";
 
+
 const router = express.Router();
 
 // Obtener todas las cajas con conteo de productos
