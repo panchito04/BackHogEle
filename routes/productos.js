@@ -39,7 +39,9 @@ router.get("/", async (req, res) => {
         return {
           ...producto,
           vendido: vendido > 0,
-          disponible: vendido === 0
+          disponible: (producto.cantidad - vendido) > 0,
+          cantidad_disponible: producto.cantidad - vendido,
+          cantidad_vendida: vendido
         };
       })
     );
@@ -82,7 +84,9 @@ router.get("/:id", async (req, res) => {
     res.json({
       ...producto,
       vendido: vendido > 0,
-      disponible: vendido === 0
+      disponible: (producto.cantidad - vendido) > 0,
+      cantidad_disponible: producto.cantidad - vendido,
+      cantidad_vendida: vendido
     });
   } catch (error) {
     console.error("Error al obtener producto:", error);
@@ -92,21 +96,27 @@ router.get("/:id", async (req, res) => {
 
 router.get("/stats/resumen", async (req, res) => {
   try {
-    const { count: total } = await supabase
+    // Total de productos (suma de cantidades)
+    const { data: productosData } = await supabase
       .from("producto")
-      .select("*", { count: "exact", head: true });
+      .select("cantidad");
     
+    const total = productosData?.reduce((sum, p) => sum + (p.cantidad || 0), 0) || 0;
+    
+    // Total vendidos
     const { data: vendidos } = await supabase
       .from("detalle_pedido")
       .select("id_producto");
     
-    const totalVendidos = new Set(vendidos?.map(d => d.id_producto)).size;
+    const totalVendidos = vendidos?.length || 0;
     const disponibles = total - totalVendidos;
     
+    // Por categoría
     const { data: categorias } = await supabase
       .from("producto")
       .select(`
         id_categoria,
+        cantidad,
         categoria:id_categoria (
           nombre
         )
@@ -115,11 +125,11 @@ router.get("/stats/resumen", async (req, res) => {
     const porCategoria = {};
     categorias?.forEach(p => {
       const catNombre = p.categoria?.nombre || 'Sin categoría';
-      porCategoria[catNombre] = (porCategoria[catNombre] || 0) + 1;
+      porCategoria[catNombre] = (porCategoria[catNombre] || 0) + (p.cantidad || 0);
     });
     
     res.json({
-      total: total || 0,
+      total: total,
       vendidos: totalVendidos,
       disponibles: disponibles,
       porCategoria: porCategoria
@@ -132,8 +142,16 @@ router.get("/stats/resumen", async (req, res) => {
 
 router.post("/", upload.single("imagen"), async (req, res) => {
   try {
-    const { nombre, descripcion, precio, id_categoria, id_caja } = req.body;
+    const { nombre, descripcion, precio, id_categoria, id_caja, cantidad } = req.body;
     let imagen_url = req.body.imagen_url || null;
+    
+    // Validar cantidad
+    const cantidadFinal = cantidad ? parseInt(cantidad) : 1;
+    if (cantidadFinal < 1) {
+      return res.status(400).json({ 
+        error: "La cantidad debe ser mayor a 0" 
+      });
+    }
     
     if (req.file) {
       const streamUpload = (buffer) => {
@@ -162,21 +180,6 @@ router.post("/", upload.single("imagen"), async (req, res) => {
       imagen_url = result.secure_url;
     }
     
-    // Verificar unicidad dentro de la caja
-    const { data: existente } = await supabase
-      .from("producto")
-      .select("id_producto")
-      .eq("nombre", nombre)
-      .eq("precio", precio)
-      .eq("id_caja", id_caja || null)
-      .maybeSingle();
-    
-    if (existente) {
-      return res.status(400).json({ 
-        error: "Ya existe un producto con el mismo nombre y precio en esta caja" 
-      });
-    }
-    
     const { data, error } = await supabase
       .from("producto")
       .insert([{ 
@@ -185,7 +188,8 @@ router.post("/", upload.single("imagen"), async (req, res) => {
         precio, 
         id_categoria: id_categoria || null,
         id_caja: id_caja || null,
-        imagen_url 
+        imagen_url,
+        cantidad: cantidadFinal
       }])
       .select(`
         *,
@@ -207,7 +211,9 @@ router.post("/", upload.single("imagen"), async (req, res) => {
     res.json({
       ...data,
       vendido: false,
-      disponible: true
+      disponible: true,
+      cantidad_disponible: data.cantidad,
+      cantidad_vendida: 0
     });
   } catch (error) {
     console.error("Error al crear producto:", error);
@@ -217,17 +223,19 @@ router.post("/", upload.single("imagen"), async (req, res) => {
 
 router.put("/:id", upload.single("imagen"), async (req, res) => {
   try {
-    const { nombre, descripcion, precio, id_categoria, id_caja } = req.body;
+    const { nombre, descripcion, precio, id_categoria, id_caja, cantidad } = req.body;
     
-    // Verificar si el producto está vendido
+    // Verificar cantidad vendida
     const { count: vendido } = await supabase
       .from("detalle_pedido")
       .select("*", { count: "exact", head: true })
       .eq("id_producto", req.params.id);
     
-    if (vendido > 0) {
+    // Validar que la nueva cantidad no sea menor a lo vendido
+    const cantidadFinal = cantidad ? parseInt(cantidad) : 1;
+    if (cantidadFinal < vendido) {
       return res.status(400).json({ 
-        error: "No se puede editar un producto que ya ha sido vendido" 
+        error: `No puedes reducir la cantidad a menos de ${vendido} (ya vendidos)` 
       });
     }
     
@@ -267,7 +275,8 @@ router.put("/:id", upload.single("imagen"), async (req, res) => {
         precio, 
         id_categoria: id_categoria || null,
         id_caja: id_caja || null,
-        imagen_url 
+        imagen_url,
+        cantidad: cantidadFinal
       })
       .eq("id_producto", req.params.id)
       .select(`
@@ -289,8 +298,10 @@ router.put("/:id", upload.single("imagen"), async (req, res) => {
     
     res.json({
       ...data,
-      vendido: false,
-      disponible: true
+      vendido: vendido > 0,
+      disponible: (data.cantidad - vendido) > 0,
+      cantidad_disponible: data.cantidad - vendido,
+      cantidad_vendida: vendido
     });
   } catch (error) {
     console.error("Error al actualizar producto:", error);
