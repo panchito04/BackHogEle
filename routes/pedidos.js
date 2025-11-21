@@ -4,43 +4,57 @@ import { supabase } from "../server.js";
 const router = express.Router();
 
 // Crear pedido
+// Reemplaza el router.post("/") en pedidos.js
 router.post("/", async (req, res) => {
   const { id_cliente, detalles, observaciones } = req.body;
 
   try {
-    // Validar que hay detalles
     if (!detalles || detalles.length === 0) {
       return res.status(400).json({ error: "Debe incluir al menos un producto" });
     }
 
-    // Verificar que los productos estén disponibles (no en otros pedidos activos)
     const productosIds = detalles.map(d => d.id_producto);
     
-    const { data: pedidosActivos, error: errorVerificar } = await supabase
-      .from("detalle_pedido")
-      .select(`
-        id_producto,
-        pedido:id_pedido (
-          estado
-        )
-      `)
-      .in("id_producto", productosIds);
+    // Verificar disponibilidad de cada producto
+    for (const detalle of detalles) {
+      const { data: producto, error: errorProducto } = await supabase
+        .from("producto")
+        .select("cantidad")
+        .eq("id_producto", detalle.id_producto)
+        .single();
 
-    if (errorVerificar) {
-      console.error("Error al verificar productos:", errorVerificar);
-      return res.status(500).json({ error: "Error al verificar disponibilidad de productos" });
-    }
+      if (errorProducto || !producto) {
+        return res.status(404).json({ 
+          error: `Producto ${detalle.id_producto} no encontrado` 
+        });
+      }
 
-    // Filtrar productos que están en pedidos NO cancelados
-    const productosNoDisponibles = pedidosActivos
-      .filter(item => item.pedido && item.pedido.estado !== 'cancelado')
-      .map(item => item.id_producto);
+      // Verificar cuántos ya están vendidos
+      const { count: vendidos } = await supabase
+        .from("detalle_pedido")
+        .select("*", { count: "exact", head: true })
+        .eq("id_producto", detalle.id_producto);
 
-    if (productosNoDisponibles.length > 0) {
-      return res.status(400).json({ 
-        error: "Algunos productos ya están en otros pedidos",
-        productos_no_disponibles: productosNoDisponibles
-      });
+      const disponibles = producto.cantidad - (vendidos || 0);
+
+      // El producto debe tener toda su cantidad disponible para venderse
+      if (disponibles < producto.cantidad) {
+        return res.status(400).json({ 
+          error: `El producto ${detalle.id_producto} ya está parcialmente vendido o reservado`,
+          disponibles: disponibles,
+          cantidad_total: producto.cantidad
+        });
+      }
+
+      // Verificar que el detalle solicite la cantidad completa del producto
+      if (detalle.cantidad !== producto.cantidad) {
+        return res.status(400).json({ 
+          error: `Debes vender la cantidad completa del producto (${producto.cantidad} unidades)`,
+          producto_id: detalle.id_producto,
+          cantidad_requerida: producto.cantidad,
+          cantidad_solicitada: detalle.cantidad
+        });
+      }
     }
 
     // Crear pedido
@@ -55,11 +69,11 @@ router.post("/", async (req, res) => {
       return res.status(500).json({ error: "Error al crear pedido", details: errorPedido });
     }
 
-    // Insertar detalles (cantidad siempre es 1 porque productos son únicos)
+    // Insertar detalles con la cantidad completa del producto
     const detalleData = detalles.map(d => ({
       id_pedido: pedido.id_pedido,
       id_producto: d.id_producto,
-      cantidad: 1, // Siempre 1 porque los productos son únicos
+      cantidad: d.cantidad, // Ahora es la cantidad completa del producto
       precio_unitario: d.precio_unitario
     }));
 
@@ -69,7 +83,6 @@ router.post("/", async (req, res) => {
 
     if (errorDetalle) {
       console.error("Error al crear detalles:", errorDetalle);
-      // Revertir el pedido si falla la inserción de detalles
       await supabase.from("pedido").delete().eq("id_pedido", pedido.id_pedido);
       return res.status(500).json({ error: "Error al crear detalles", details: errorDetalle });
     }
