@@ -162,10 +162,9 @@ router.post("/", upload.single("imagen"), async (req, res) => {
               resource_type: "image",
               format: "jpg",
               transformation: [
-                { width: 800, height: 800, crop: "limit" },
-                { quality: "auto:eco" },
-                { fetch_format: "jpg" }
-              ]
+  { quality: "auto:eco" },
+  { fetch_format: "jpg" }
+]
             },
             (error, result) => {
               if (result) resolve(result);
