@@ -5,6 +5,7 @@ const router = express.Router();
 
 // Crear pedido
 // Reemplaza el router.post("/") en pedidos.js
+// Reemplaza el router.post("/"):
 router.post("/", async (req, res) => {
   const { id_cliente, detalles, observaciones } = req.body;
 
@@ -13,8 +14,6 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ error: "Debe incluir al menos un producto" });
     }
 
-    const productosIds = detalles.map(d => d.id_producto);
-    
     // Verificar disponibilidad de cada producto
     for (const detalle of detalles) {
       const { data: producto, error: errorProducto } = await supabase
@@ -37,22 +36,10 @@ router.post("/", async (req, res) => {
 
       const disponibles = producto.cantidad - (vendidos || 0);
 
-      // El producto debe tener toda su cantidad disponible para venderse
+      // El producto debe tener toda su cantidad disponible
       if (disponibles < producto.cantidad) {
         return res.status(400).json({ 
-          error: `El producto ${detalle.id_producto} ya está parcialmente vendido o reservado`,
-          disponibles: disponibles,
-          cantidad_total: producto.cantidad
-        });
-      }
-
-      // Verificar que el detalle solicite la cantidad completa del producto
-      if (detalle.cantidad !== producto.cantidad) {
-        return res.status(400).json({ 
-          error: `Debes vender la cantidad completa del producto (${producto.cantidad} unidades)`,
-          producto_id: detalle.id_producto,
-          cantidad_requerida: producto.cantidad,
-          cantidad_solicitada: detalle.cantidad
+          error: `El producto ${detalle.id_producto} ya está vendido o reservado`
         });
       }
     }
@@ -69,12 +56,12 @@ router.post("/", async (req, res) => {
       return res.status(500).json({ error: "Error al crear pedido", details: errorPedido });
     }
 
-    // Insertar detalles con la cantidad completa del producto
+    // Insertar detalles - cantidad siempre 1 (pack completo)
     const detalleData = detalles.map(d => ({
       id_pedido: pedido.id_pedido,
       id_producto: d.id_producto,
-      cantidad: d.cantidad, // Ahora es la cantidad completa del producto
-      precio_unitario: d.precio_unitario
+      cantidad: 1, // SIEMPRE 1 - es el pack completo
+      precio_unitario: d.precio_unitario // El precio total del pack
     }));
 
     const { error: errorDetalle } = await supabase
