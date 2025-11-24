@@ -32,18 +32,22 @@ const corsOptions = {
     ? [
         'https://front-hog-ele.vercel.app',
         process.env.FRONTEND_URL
-      ].filter(Boolean) // Filtrar valores null/undefined
+      ].filter(Boolean)
     : [
         'http://localhost:5173',
+        'http://localhost:5174', // ⚠️ AGREGADO - tu puerto actual
         'http://localhost:3000'
       ],
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range']
 };
 
 // Middlewares
 app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // ⚠️ AGREGADO - Maneja preflight requests
+
 app.use(express.json());
 app.use(cookieParser());
 
@@ -56,7 +60,7 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 // Rutas
-app.use("/api/usuarios", usuariosRoutes); // ⚠️ Esta debe ir PRIMERO (contiene login y registro)
+app.use("/api/usuarios", usuariosRoutes);
 app.use("/api/productos", productosRoutes);
 app.use("/api/clientes", clientesRoutes);
 app.use("/api/pedidos", pedidosRoutes);
