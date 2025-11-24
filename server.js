@@ -26,7 +26,7 @@ export const supabase = createClient(
   process.env.SUPABASE_KEY
 );
 
-// Configurar CORS
+// Configurar CORS - ⚠️ VERSIÓN CORREGIDA
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production' 
     ? [
@@ -35,19 +35,19 @@ const corsOptions = {
       ].filter(Boolean)
     : [
         'http://localhost:5173',
-        'http://localhost:5174', // ⚠️ AGREGADO - tu puerto actual
+        'http://localhost:5174',
         'http://localhost:3000'
       ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  exposedHeaders: ['Content-Range', 'X-Content-Range']
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
 };
 
 // Middlewares
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // ⚠️ AGREGADO - Maneja preflight requests
-
 app.use(express.json());
 app.use(cookieParser());
 
