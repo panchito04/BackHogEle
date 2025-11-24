@@ -122,8 +122,11 @@ router.post("/registro", async (req, res) => {
 });
 
 // LOGIN
+// backend/routes/usuarios.js - Sección LOGIN mejorada
 router.post("/login", async (req, res) => {
   const { email, contrasena } = req.body;
+  
+  console.log("🔐 Intento de login:", { email }); // NO loguees la contraseña
   
   if (!email || !contrasena) {
     return res.status(400).json({ 
@@ -141,21 +144,28 @@ router.post("/login", async (req, res) => {
       .single();
 
     if (error || !usuario) {
+      console.log("❌ Usuario no encontrado:", email);
       return res.status(401).json({ 
         success: false,
         message: 'Usuario o contraseña incorrectos' 
       });
     }
+
+    console.log("✅ Usuario encontrado:", usuario.email);
+    console.log("🔍 Contraseña encriptada:", usuario.contrasena.substring(0, 10) + "...");
 
     // Verificar contraseña
     const contrasenaValida = await bcrypt.compare(contrasena, usuario.contrasena);
 
     if (!contrasenaValida) {
+      console.log("❌ Contraseña incorrecta para:", email);
       return res.status(401).json({ 
         success: false,
         message: 'Usuario o contraseña incorrectos' 
       });
     }
+
+    console.log("✅ Login exitoso:", email);
 
     // Generar token
     const token = generarToken(usuario);
@@ -171,7 +181,7 @@ router.post("/login", async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error:', error);
+    console.error('❌ Error en login:', error);
     res.status(500).json({ 
       success: false,
       message: 'Error al iniciar sesión' 

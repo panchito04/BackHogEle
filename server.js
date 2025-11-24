@@ -27,17 +27,25 @@ export const supabase = createClient(
 );
 
 // Configurar CORS - ⚠️ VERSIÓN CORREGIDA
+// Configurar CORS - ⚠️ PERMITIR LOCALHOST TAMBIÉN EN PRODUCCIÓN
 const corsOptions = {
-  origin: process.env.NODE_ENV === 'production' 
-    ? [
-        'https://front-hog-ele.vercel.app',
-        process.env.FRONTEND_URL
-      ].filter(Boolean)
-    : [
-        'http://localhost:5173',
-        'http://localhost:5174',
-        'http://localhost:3000'
-      ],
+  origin: function (origin, callback) {
+    // Permitir peticiones sin origin (como Postman) o desde localhost
+    const allowedOrigins = [
+      'https://front-hog-ele.vercel.app',
+      'http://localhost:5173',
+      'http://localhost:5174',
+      'http://localhost:3000',
+      process.env.FRONTEND_URL
+    ].filter(Boolean);
+
+    // Permitir peticiones sin origin (móvil, Postman, etc.) o que estén en la lista
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('No permitido por CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
