@@ -1,47 +1,67 @@
+// backend/routes/usuarios.js
 import express from "express";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 import { supabase } from "../server.js";
+import { verificarToken, verificarRol } from "../middleware/auth.js";
 
 const router = express.Router();
 
-// Roles válidos
+// Configuración
+const JWT_SECRET = process.env.JWT_SECRET || 'hogar_elegante_super_secret_key_2024_production_render';
 const ROLES_VALIDOS = ['admin', 'vendedor', 'entregas'];
 
-// Crear usuario
-router.post("/", async (req, res) => {
+// Función para generar token
+const generarToken = (usuario) => {
+  return jwt.sign(
+    {
+      id: usuario.id,
+      email: usuario.email,
+      nombre: usuario.nombre,
+      rol: usuario.rol
+    },
+    JWT_SECRET,
+    { expiresIn: '7d' }
+  );
+};
+
+// REGISTRO
+router.post("/registro", async (req, res) => {
   const { nombre, email, contrasena, rol } = req.body;
 
-  // Validación básica
+  // Validaciones
   if (!nombre || !email || !contrasena) {
     return res.status(400).json({ 
+      success: false,
       message: 'Nombre, email y contraseña son requeridos' 
     });
   }
 
-  // Validar que el rol sea uno de los permitidos
   if (!rol || !ROLES_VALIDOS.includes(rol)) {
     return res.status(400).json({ 
+      success: false,
       message: `Rol inválido. Los roles permitidos son: ${ROLES_VALIDOS.join(', ')}` 
     });
   }
 
-  // Validar formato de email
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) {
     return res.status(400).json({ 
+      success: false,
       message: 'Correo electrónico inválido' 
     });
   }
 
-  // Validar longitud de contraseña
   if (contrasena.length < 6) {
     return res.status(400).json({ 
+      success: false,
       message: 'La contraseña debe tener al menos 6 caracteres' 
     });
   }
 
   try {
     // Verificar si el email ya existe
-    const { data: usuarioExistente, error: errorBusqueda } = await supabase
+    const { data: usuarioExistente } = await supabase
       .from("usuario")
       .select("id")
       .eq('email', email)
@@ -49,20 +69,22 @@ router.post("/", async (req, res) => {
 
     if (usuarioExistente) {
       return res.status(400).json({ 
+        success: false,
         message: 'Este correo electrónico ya está registrado' 
       });
     }
 
-    // Si no hay error pero tampoco usuario, es normal (no existe)
-    // Si hay error por "no rows", también es normal
+    // Encriptar contraseña
+    const salt = await bcrypt.genSalt(10);
+    const contrasenaEncriptada = await bcrypt.hash(contrasena, salt);
 
-    // Crear el nuevo usuario
+    // Crear usuario
     const { data, error } = await supabase
       .from("usuario")
       .insert([{ 
         nombre, 
         email, 
-        contrasena, 
+        contrasena: contrasenaEncriptada, 
         rol,
         fecha_creacion: new Date().toISOString()
       }])
@@ -71,57 +93,174 @@ router.post("/", async (req, res) => {
 
     if (error) {
       console.error('Error en Supabase:', error);
-      return res.status(500).json({ message: 'Error al crear usuario en la base de datos' });
+      return res.status(500).json({ 
+        success: false,
+        message: 'Error al crear usuario en la base de datos' 
+      });
     }
 
-    // Retornar solo datos seguros (no la contraseña)
+    // Generar token
+    const token = generarToken(data);
+
+    // Usuario sin contraseña
     const { contrasena: _, ...usuarioSeguro } = data;
-    res.status(201).json(usuarioSeguro);
+
+    res.status(201).json({
+      success: true,
+      message: 'Usuario creado exitosamente',
+      token,
+      usuario: usuarioSeguro
+    });
 
   } catch (error) {
     console.error('Error en servidor:', error);
-    res.status(500).json({ message: 'Error al crear usuario' });
+    res.status(500).json({ 
+      success: false,
+      message: 'Error al crear usuario' 
+    });
   }
 });
 
-// Obtener usuarios (login)
-router.get("/", async (req, res) => {
-  const { email, contrasena } = req.query;
+// LOGIN
+router.post("/login", async (req, res) => {
+  const { email, contrasena } = req.body;
   
   if (!email || !contrasena) {
     return res.status(400).json({ 
+      success: false,
       message: 'Email y contraseña son requeridos' 
     });
   }
 
   try {
-    let query = supabase.from("usuario").select("*");
+    // Buscar usuario por email
+    const { data: usuario, error } = await supabase
+      .from("usuario")
+      .select("*")
+      .eq('email', email)
+      .single();
 
-    if (email && contrasena) {
-      query = query.eq('email', email).eq('contrasena', contrasena);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      return res.status(500).json({ message: error.message });
-    }
-
-    if (!data || data.length === 0) {
+    if (error || !usuario) {
       return res.status(401).json({ 
+        success: false,
         message: 'Usuario o contraseña incorrectos' 
       });
     }
 
-    // Retornar solo datos seguros
-    const usuariosSeguro = data.map(({ contrasena: _, ...user }) => user);
-    res.json(usuariosSeguro);
+    // Verificar contraseña
+    const contrasenaValida = await bcrypt.compare(contrasena, usuario.contrasena);
+
+    if (!contrasenaValida) {
+      return res.status(401).json({ 
+        success: false,
+        message: 'Usuario o contraseña incorrectos' 
+      });
+    }
+
+    // Generar token
+    const token = generarToken(usuario);
+
+    // Usuario sin contraseña
+    const { contrasena: _, ...usuarioSeguro } = usuario;
+
+    res.json({
+      success: true,
+      message: 'Login exitoso',
+      token,
+      usuario: usuarioSeguro
+    });
 
   } catch (error) {
     console.error('Error:', error);
-    res.status(500).json({ message: 'Error al obtener usuario' });
+    res.status(500).json({ 
+      success: false,
+      message: 'Error al iniciar sesión' 
+    });
   }
 });
 
+// VERIFICAR TOKEN
+router.get("/verificar", verificarToken, async (req, res) => {
+  try {
+    const { data: usuario, error } = await supabase
+      .from("usuario")
+      .select("id, nombre, email, rol, fecha_creacion")
+      .eq('id', req.usuario.id)
+      .single();
+
+    if (error || !usuario) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Usuario no encontrado' 
+      });
+    }
+
+    res.json({
+      success: true,
+      usuario
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: 'Error al verificar usuario' 
+    });
+  }
+});
+
+// OBTENER PERFIL
+router.get("/perfil", verificarToken, async (req, res) => {
+  try {
+    const { data: usuario, error } = await supabase
+      .from("usuario")
+      .select("id, nombre, email, rol, fecha_creacion")
+      .eq('id', req.usuario.id)
+      .single();
+
+    if (error || !usuario) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Usuario no encontrado' 
+      });
+    }
+
+    res.json({
+      success: true,
+      usuario
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: 'Error al obtener perfil' 
+    });
+  }
+});
+
+// LISTAR USUARIOS (solo admin)
+router.get("/", verificarToken, verificarRol('admin'), async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("usuario")
+      .select("id, nombre, email, rol, fecha_creacion")
+      .order('fecha_creacion', { ascending: false });
+
+    if (error) {
+      return res.status(500).json({ 
+        success: false,
+        message: error.message 
+      });
+    }
+
+    res.json({
+      success: true,
+      usuarios: data
+    });
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error al obtener usuarios' 
+    });
+  }
+});
 
 export default router;
