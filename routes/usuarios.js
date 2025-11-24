@@ -14,7 +14,7 @@ const ROLES_VALIDOS = ['admin', 'vendedor', 'entregas'];
 const generarToken = (usuario) => {
   return jwt.sign(
     {
-      id: usuario.usuario_id || usuario.id,
+      id: usuario.id_usuario, // ⚠️ Corregido al nombre real de la columna
       email: usuario.email,
       nombre: usuario.nombre,
       rol: usuario.rol
