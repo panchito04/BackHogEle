@@ -2,7 +2,7 @@ name: Backup Supabase Daily
 
 on:
   schedule:
-    - cron: "0 0 * * *" # diario a las 00:00 UTC
+    - cron: "0 4 * * *" # 12 AM Bolivia (4 AM UTC)
   workflow_dispatch:
 
 jobs:
@@ -18,21 +18,26 @@ jobs:
           sudo apt-get update
           sudo apt-get install postgresql-client-17 -y
 
-      # Dump de la base de datos usando el pg_dump de PostgreSQL 17
+      # Dump de la base de datos
       - name: Dump database
         run: |
           /usr/lib/postgresql/17/bin/pg_dump "${{ secrets.SUPABASE_DB_URL }}" -F c -f backup.dump
 
-      # Instalar Google Drive uploader globalmente
-      - name: Instalar Google Drive uploader
-        run: |
-          sudo apt-get install python3-pip -y
-          sudo pip3 install gdrive-tools  # instalación global
+      # Setup Python
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
 
-      # Subir backup a Google Drive usando gdrive-tools global
+      # Instalar gdrive-tools SIN sudo
+      - name: Instalar gdrive-tools
+        run: |
+          pip install gdrive-tools
+
+      # Subir backup a Google Drive
       - name: Subir backup a Google Drive
         run: |
-          gdrive-tools upload \
+          python -m gdrive_tools upload \
             --client-id "${{ secrets.STORAGE_CLIENT_ID }}" \
             --client-secret "${{ secrets.STORAGE_CLIENT_SECRET }}" \
             --refresh-token "${{ secrets.STORAGE_REFRESH_TOKEN }}" \
