@@ -2,7 +2,7 @@ name: Backup Supabase Daily
 
 on:
   schedule:
-    - cron: "0 4 * * *" # 12 AM Bolivia (4 AM UTC)
+    - cron: "0 4 * * *" # 12 AM Bolivia
   workflow_dispatch:
 
 jobs:
@@ -10,7 +10,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Instalar PostgreSQL Client 17
       - name: Instalar PostgreSQL Client 17
         run: |
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
@@ -18,28 +17,33 @@ jobs:
           sudo apt-get update
           sudo apt-get install postgresql-client-17 -y
 
-      # Dump de la base de datos
-      - name: Dump database
+      - name: Crear backup
         run: |
-          /usr/lib/postgresql/17/bin/pg_dump "${{ secrets.SUPABASE_DB_URL }}" -F c -f backup.dump
+          FECHA=$(date +%Y-%m-%d_%H-%M-%S)
+          /usr/lib/postgresql/17/bin/pg_dump "${{ secrets.SUPABASE_DB_URL }}" -F c -f "backup_${FECHA}.dump"
+          echo "BACKUP_FILE=backup_${FECHA}.dump" >> $GITHUB_ENV
 
-      # Setup Python
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.x'
-
-      # Instalar gdrive-tools SIN sudo
-      - name: Instalar gdrive-tools
+      - name: Instalar rclone
         run: |
-          pip install gdrive-tools
+          curl https://rclone.org/install.sh | sudo bash
 
-      # Subir backup a Google Drive
-      - name: Subir backup a Google Drive
+      - name: Configurar rclone para Google Drive
         run: |
-          python -m gdrive_tools upload \
-            --client-id "${{ secrets.STORAGE_CLIENT_ID }}" \
-            --client-secret "${{ secrets.STORAGE_CLIENT_SECRET }}" \
-            --refresh-token "${{ secrets.STORAGE_REFRESH_TOKEN }}" \
-            --parent "${{ secrets.STORAGE_FOLDER_ID }}" \
-            backup.dump
+          mkdir -p ~/.config/rclone
+          cat << EOF > ~/.config/rclone/rclone.conf
+          [gdrive]
+          type = drive
+          client_id = ${{ secrets.STORAGE_CLIENT_ID }}
+          client_secret = ${{ secrets.STORAGE_CLIENT_SECRET }}
+          token = {"access_token":"","token_type":"Bearer","refresh_token":"${{ secrets.STORAGE_REFRESH_TOKEN }}","expiry":"2000-01-01T00:00:00Z"}
+          team_drive = 
+          root_folder_id = ${{ secrets.STORAGE_FOLDER_ID }}
+          EOF
+
+      - name: Subir a Google Drive
+        run: |
+          rclone copy "${{ env.BACKUP_FILE }}" gdrive: -v
+
+      - name: Limpiar backups antiguos (mantener últimos 7)
+        run: |
+          rclone delete gdrive: --min-age 7d -v
