@@ -1,0 +1,32 @@
+name: Backup Supabase Daily
+
+on:
+  schedule:
+    - cron: "0 0 * * *" # diario a las 00:00 UTC
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Instalar PostgreSQL Client
+        run: sudo apt-get install postgresql-client -y
+
+      - name: Dump database
+        run: |
+          pg_dump "${{ secrets.SUPABASE_DB_URL }}" -F c -f backup.dump
+
+      - name: Instalar Google Drive uploader
+        run: |
+          sudo apt-get install python3-pip -y
+          pip3 install gdrive-tools
+
+      - name: Subir backup a Google Drive
+        run: |
+          gdrive-tools upload \
+            --client-id "${{ secrets.STORAGE_CLIENT_ID }}" \
+            --client-secret "${{ secrets.STORAGE_CLIENT_SECRET }}" \
+            --refresh-token "${{ secrets.STORAGE_REFRESH_TOKEN }}" \
+            --parent "${{ secrets.STORAGE_FOLDER_ID }}" \
+            backup.dump
