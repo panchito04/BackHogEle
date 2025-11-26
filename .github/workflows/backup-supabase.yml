@@ -27,26 +27,33 @@ jobs:
         run: |
           curl https://rclone.org/install.sh | sudo bash
 
-      - name: Configurar rclone para Google Drive
+      - name: Configurar rclone
         run: |
           mkdir -p ~/.config/rclone
-          cat << EOF > ~/.config/rclone/rclone.conf
+          cat > ~/.config/rclone/rclone.conf <<'RCLONE_EOF'
           [gdrive]
           type = drive
           scope = drive
-          client_id = ${{ secrets.STORAGE_CLIENT_ID }}
-          client_secret = ${{ secrets.STORAGE_CLIENT_SECRET }}
-          token = {"access_token":"","token_type":"Bearer","refresh_token":"${{ secrets.STORAGE_REFRESH_TOKEN }}","expiry":"2099-01-01T00:00:00Z"}
-          root_folder_id = ${{ secrets.STORAGE_FOLDER_ID }}
-          EOF
+          RCLONE_EOF
+          echo "client_id = ${{ secrets.STORAGE_CLIENT_ID }}" >> ~/.config/rclone/rclone.conf
+          echo "client_secret = ${{ secrets.STORAGE_CLIENT_SECRET }}" >> ~/.config/rclone/rclone.conf
+          echo "token = ${{ secrets.RCLONE_TOKEN_JSON }}" >> ~/.config/rclone/rclone.conf
+          echo "root_folder_id = ${{ secrets.STORAGE_FOLDER_ID }}" >> ~/.config/rclone/rclone.conf
+
+      - name: Verificar que el archivo existe
+        run: |
+          ls -lh "${{ env.BACKUP_FILE }}"
+          echo "Tamaño del backup: $(du -h ${{ env.BACKUP_FILE }} | cut -f1)"
 
       - name: Subir a Google Drive
         run: |
-          rclone copy "${{ env.BACKUP_FILE }}" gdrive: -v
+          rclone copy "${{ env.BACKUP_FILE }}" gdrive: -vv --progress
 
-      - name: Limpiar backups antiguos (mantener últimos 7)
+      - name: Verificar subida
+        run: |
+          echo "Archivos en Google Drive:"
+          rclone ls gdrive: | tail -10
+
+      - name: Limpiar backups antiguos (mantener últimos 7 días)
         run: |
           rclone delete gdrive: --min-age 7d -v
-
-
-          10406281468-s7dtu8pt0471j0dvi85h6eroodpi1ksl.apps.googleusercontent.com
