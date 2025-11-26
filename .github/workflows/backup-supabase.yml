@@ -30,20 +30,23 @@ jobs:
       - name: Configurar rclone para Google Drive
         run: |
           mkdir -p ~/.config/rclone
-          cat << 'EOF' > ~/.config/rclone/rclone.conf
+          cat << EOF > ~/.config/rclone/rclone.conf
           [gdrive]
           type = drive
-          scope = drive
           client_id = ${{ secrets.STORAGE_CLIENT_ID }}
           client_secret = ${{ secrets.STORAGE_CLIENT_SECRET }}
-          token = {"access_token":"","token_type":"Bearer","refresh_token":"${{ secrets.STORAGE_REFRESH_TOKEN }}","expiry":"2099-01-01T00:00:00Z"}
+          token = {"access_token":"","token_type":"Bearer","refresh_token":"${{ secrets.STORAGE_REFRESH_TOKEN }}","expiry":"2000-01-01T00:00:00Z"}
+          team_drive = 
           root_folder_id = ${{ secrets.STORAGE_FOLDER_ID }}
           EOF
 
       - name: Subir a Google Drive
         run: |
-          rclone copy "${{ env.BACKUP_FILE }}" gdrive: -v --create-empty-src-dirs
+          rclone copy "${{ env.BACKUP_FILE }}" gdrive: -v
 
-      - name: Limpiar backups antiguos (mantener últimos 7 días)
+      - name: Limpiar backups antiguos (mantener últimos 7)
         run: |
           rclone delete gdrive: --min-age 7d -v
+
+
+          10406281468-s7dtu8pt0471j0dvi85h6eroodpi1ksl.apps.googleusercontent.com
