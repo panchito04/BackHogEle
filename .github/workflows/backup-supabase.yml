@@ -23,14 +23,13 @@ jobs:
         run: |
           /usr/lib/postgresql/17/bin/pg_dump "${{ secrets.SUPABASE_DB_URL }}" -F c -f backup.dump
 
-      # Instalar Google Drive uploader
+      # Instalar Google Drive uploader globalmente
       - name: Instalar Google Drive uploader
         run: |
           sudo apt-get install python3-pip -y
-          pip3 install --user gdrive-tools
-          echo "$HOME/.local/bin" >> $GITHUB_PATH  # Agregar gdrive-tools al PATH
+          sudo pip3 install gdrive-tools  # instalación global
 
-      # Subir backup a Google Drive
+      # Subir backup a Google Drive usando gdrive-tools global
       - name: Subir backup a Google Drive
         run: |
           gdrive-tools upload \
