@@ -2,7 +2,7 @@ name: Backup Supabase Daily
 
 on:
   schedule:
-    - cron: "0 4 * * *" # 12 AM Bolivia
+    - cron: "0 9 * * *" # 5 AM Bolivia
   workflow_dispatch:
 
 jobs:
