@@ -28,22 +28,28 @@ jobs:
           curl https://rclone.org/install.sh | sudo bash
 
       - name: Configurar rclone
+        env:
+          CLIENT_ID: ${{ secrets.STORAGE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.STORAGE_CLIENT_SECRET }}
+          TOKEN_JSON: ${{ secrets.RCLONE_TOKEN_JSON }}
+          FOLDER_ID: ${{ secrets.STORAGE_FOLDER_ID }}
         run: |
           mkdir -p ~/.config/rclone
-          cat > ~/.config/rclone/rclone.conf <<'RCLONE_EOF'
+          cat > ~/.config/rclone/rclone.conf << 'EOF'
           [gdrive]
           type = drive
           scope = drive
-          RCLONE_EOF
-          echo "client_id = ${{ secrets.STORAGE_CLIENT_ID }}" >> ~/.config/rclone/rclone.conf
-          echo "client_secret = ${{ secrets.STORAGE_CLIENT_SECRET }}" >> ~/.config/rclone/rclone.conf
-          echo "token = ${{ secrets.RCLONE_TOKEN_JSON }}" >> ~/.config/rclone/rclone.conf
-          echo "root_folder_id = ${{ secrets.STORAGE_FOLDER_ID }}" >> ~/.config/rclone/rclone.conf
+          EOF
+          printf "client_id = %s\n" "$CLIENT_ID" >> ~/.config/rclone/rclone.conf
+          printf "client_secret = %s\n" "$CLIENT_SECRET" >> ~/.config/rclone/rclone.conf
+          printf "token = %s\n" "$TOKEN_JSON" >> ~/.config/rclone/rclone.conf
+          printf "root_folder_id = %s\n" "$FOLDER_ID" >> ~/.config/rclone/rclone.conf
 
-      - name: Verificar que el archivo existe
+      - name: Verificar configuración (ocultar token)
         run: |
-          ls -lh "${{ env.BACKUP_FILE }}"
-          echo "Tamaño del backup: $(du -h ${{ env.BACKUP_FILE }} | cut -f1)"
+          echo "=== Verificando configuración ==="
+          grep -v "token" ~/.config/rclone/rclone.conf || true
+          echo "Token presente: $(grep -c "token" ~/.config/rclone/rclone.conf || echo 0)"
 
       - name: Subir a Google Drive
         run: |
@@ -51,8 +57,8 @@ jobs:
 
       - name: Verificar subida
         run: |
-          echo "Archivos en Google Drive:"
-          rclone ls gdrive: | tail -10
+          echo "Últimos archivos en Google Drive:"
+          rclone ls gdrive: | tail -5
 
       - name: Limpiar backups antiguos (mantener últimos 7 días)
         run: |
