@@ -18,10 +18,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install postgresql-client-17 -y
 
-      # Dump de la base de datos
+      # Dump de la base de datos usando el pg_dump de PostgreSQL 17
       - name: Dump database
         run: |
-          pg_dump "${{ secrets.SUPABASE_DB_URL }}" -F c -f backup.dump
+          /usr/lib/postgresql/17/bin/pg_dump "${{ secrets.SUPABASE_DB_URL }}" -F c -f backup.dump
 
       # Instalar Google Drive uploader
       - name: Instalar Google Drive uploader
