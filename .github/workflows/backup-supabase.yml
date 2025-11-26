@@ -8,20 +8,16 @@ on:
 jobs:
   backup:
     runs-on: ubuntu-latest
-
+    container:
+      image: postgres:17.6 # Usa la versión de tu Supabase
     steps:
-      - name: Instalar PostgreSQL Client
-        run: sudo apt-get install postgresql-client -y
-
       - name: Dump database
         run: |
-          pg_dump "${{ secrets.SUPABASE_DB_URL }}" -F c -f backup.dump
-
+          pg_dump "$SUPABASE_DB_URL" -F c -f backup.dump
       - name: Instalar Google Drive uploader
         run: |
-          sudo apt-get install python3-pip -y
+          apt-get update && apt-get install python3-pip -y
           pip3 install gdrive-tools
-
       - name: Subir backup a Google Drive
         run: |
           gdrive-tools upload \
