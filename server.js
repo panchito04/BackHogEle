@@ -17,6 +17,7 @@ import categoriasRoutes from "./routes/categorias.js";
 import homeRoutes from "./routes/home.js";
 import cajasRoutes from "./routes/cajas.js";
 
+
 const app = express();
 const PORT = process.env.PORT || 4000;
 
