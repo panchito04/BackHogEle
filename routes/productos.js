@@ -7,6 +7,7 @@ import { supabase } from "../server.js";
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
+// ✅ GET TODOS LOS PRODUCTOS - Formato estandarizado
 router.get("/", async (req, res) => {
   try {
     const { data: productos, error } = await supabase
@@ -46,13 +47,23 @@ router.get("/", async (req, res) => {
       })
     );
     
-    res.json(productosConEstado);
+    // ✅ CAMBIO: Devolver con formato estándar
+    res.json({
+      success: true,
+      data: productosConEstado,
+      message: 'Productos obtenidos correctamente'
+    });
   } catch (error) {
-    console.error("Error al obtener productos:", error);
-    res.status(500).json({ error: error.message });
+    console.error("❌ Error al obtener productos:", error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message,
+      data: []
+    });
   }
 });
 
+// ✅ GET PRODUCTO POR ID
 router.get("/:id", async (req, res) => {
   try {
     const { data: producto, error } = await supabase
@@ -82,28 +93,33 @@ router.get("/:id", async (req, res) => {
       .eq("id_producto", producto.id_producto);
     
     res.json({
-      ...producto,
-      vendido: vendido > 0,
-      disponible: (producto.cantidad - vendido) > 0,
-      cantidad_disponible: producto.cantidad - vendido,
-      cantidad_vendida: vendido
+      success: true,
+      data: {
+        ...producto,
+        vendido: vendido > 0,
+        disponible: (producto.cantidad - vendido) > 0,
+        cantidad_disponible: producto.cantidad - vendido,
+        cantidad_vendida: vendido
+      }
     });
   } catch (error) {
-    console.error("Error al obtener producto:", error);
-    res.status(500).json({ error: error.message });
+    console.error("❌ Error al obtener producto:", error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message
+    });
   }
 });
 
+// ✅ GET ESTADÍSTICAS
 router.get("/stats/resumen", async (req, res) => {
   try {
-    // Total de productos (suma de cantidades)
     const { data: productosData } = await supabase
       .from("producto")
       .select("cantidad");
     
     const total = productosData?.reduce((sum, p) => sum + (p.cantidad || 0), 0) || 0;
     
-    // Total vendidos
     const { data: vendidos } = await supabase
       .from("detalle_pedido")
       .select("id_producto");
@@ -111,7 +127,6 @@ router.get("/stats/resumen", async (req, res) => {
     const totalVendidos = vendidos?.length || 0;
     const disponibles = total - totalVendidos;
     
-    // Por categoría
     const { data: categorias } = await supabase
       .from("producto")
       .select(`
@@ -129,17 +144,24 @@ router.get("/stats/resumen", async (req, res) => {
     });
     
     res.json({
-      total: total,
-      vendidos: totalVendidos,
-      disponibles: disponibles,
-      porCategoria: porCategoria
+      success: true,
+      data: {
+        total: total,
+        vendidos: totalVendidos,
+        disponibles: disponibles,
+        porCategoria: porCategoria
+      }
     });
   } catch (error) {
-    console.error("Error al obtener estadísticas:", error);
-    res.status(500).json({ error: error.message });
+    console.error("❌ Error al obtener estadísticas:", error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message
+    });
   }
 });
 
+// ✅ POST CREAR PRODUCTO
 router.post("/", upload.single("imagen"), async (req, res) => {
   try {
     const { nombre, descripcion, precio, id_categoria, id_caja, cantidad } = req.body;
@@ -149,7 +171,8 @@ router.post("/", upload.single("imagen"), async (req, res) => {
     const cantidadFinal = cantidad ? parseInt(cantidad) : 1;
     if (cantidadFinal < 1) {
       return res.status(400).json({ 
-        error: "La cantidad debe ser mayor a 0" 
+        success: false,
+        message: "La cantidad debe ser mayor a 0" 
       });
     }
     
@@ -162,9 +185,9 @@ router.post("/", upload.single("imagen"), async (req, res) => {
               resource_type: "image",
               format: "jpg",
               transformation: [
-  { quality: "auto:eco" },
-  { fetch_format: "jpg" }
-]
+                { quality: "auto:eco" },
+                { fetch_format: "jpg" }
+              ]
             },
             (error, result) => {
               if (result) resolve(result);
@@ -208,18 +231,26 @@ router.post("/", upload.single("imagen"), async (req, res) => {
     if (error) throw error;
     
     res.json({
-      ...data,
-      vendido: false,
-      disponible: true,
-      cantidad_disponible: data.cantidad,
-      cantidad_vendida: 0
+      success: true,
+      message: '✨ Producto creado exitosamente',
+      data: {
+        ...data,
+        vendido: false,
+        disponible: true,
+        cantidad_disponible: data.cantidad,
+        cantidad_vendida: 0
+      }
     });
   } catch (error) {
-    console.error("Error al crear producto:", error);
-    res.status(500).json({ error: error.message });
+    console.error("❌ Error al crear producto:", error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message
+    });
   }
 });
 
+// ✅ PUT ACTUALIZAR PRODUCTO
 router.put("/:id", upload.single("imagen"), async (req, res) => {
   try {
     const { nombre, descripcion, precio, id_categoria, id_caja, cantidad } = req.body;
@@ -234,7 +265,8 @@ router.put("/:id", upload.single("imagen"), async (req, res) => {
     const cantidadFinal = cantidad ? parseInt(cantidad) : 1;
     if (cantidadFinal < vendido) {
       return res.status(400).json({ 
-        error: `No puedes reducir la cantidad a menos de ${vendido} (ya vendidos)` 
+        success: false,
+        message: `No puedes reducir la cantidad a menos de ${vendido} (ya vendidos)` 
       });
     }
     
@@ -296,18 +328,26 @@ router.put("/:id", upload.single("imagen"), async (req, res) => {
     if (error) throw error;
     
     res.json({
-      ...data,
-      vendido: vendido > 0,
-      disponible: (data.cantidad - vendido) > 0,
-      cantidad_disponible: data.cantidad - vendido,
-      cantidad_vendida: vendido
+      success: true,
+      message: '💾 Producto actualizado exitosamente',
+      data: {
+        ...data,
+        vendido: vendido > 0,
+        disponible: (data.cantidad - vendido) > 0,
+        cantidad_disponible: data.cantidad - vendido,
+        cantidad_vendida: vendido
+      }
     });
   } catch (error) {
-    console.error("Error al actualizar producto:", error);
-    res.status(500).json({ error: error.message });
+    console.error("❌ Error al actualizar producto:", error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message
+    });
   }
 });
 
+// ✅ DELETE ELIMINAR PRODUCTO
 router.delete("/:id", async (req, res) => {
   try {
     // Verificar si está vendido
@@ -318,7 +358,8 @@ router.delete("/:id", async (req, res) => {
     
     if (vendido > 0) {
       return res.status(400).json({ 
-        error: "No se puede eliminar un producto que ya ha sido vendido" 
+        success: false,
+        message: "No se puede eliminar un producto que ya ha sido vendido" 
       });
     }
     
@@ -329,10 +370,16 @@ router.delete("/:id", async (req, res) => {
     
     if (error) throw error;
     
-    res.json({ message: "Producto eliminado exitosamente" });
+    res.json({ 
+      success: true,
+      message: "🗑️ Producto eliminado exitosamente" 
+    });
   } catch (error) {
-    console.error("Error al eliminar producto:", error);
-    res.status(500).json({ error: error.message });
+    console.error("❌ Error al eliminar producto:", error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message
+    });
   }
 });
 
