@@ -1,4 +1,4 @@
-// routes/pedidos.js - BACKEND UNIFICADO CON PAGOS
+// routes/pedidos.js - BACKEND CORREGIDO
 import express from "express";
 import { supabase } from "../server.js";
 
@@ -7,143 +7,115 @@ const router = express.Router();
 // =============================================
 // OBTENER TODOS LOS PEDIDOS CON DETALLES Y PAGOS
 // =============================================
+// GET PEDIDOS (Se mantiene igual)
 router.get("/", async (req, res) => {
   try {
-    // Obtener pedidos
-    const { data: pedidos, error: errorPedidos } = await supabase
+    const { data: pedidos, error } = await supabase
       .from("pedido")
       .select("*")
       .order("fecha", { ascending: false });
 
-    if (errorPedidos) throw errorPedidos;
+    if (error) throw error;
 
-    // Enriquecer cada pedido con detalles y pagos
+    // Traer detalles y pagos
     const pedidosCompletos = await Promise.all(
       pedidos.map(async (pedido) => {
-        // Obtener detalles
-        const { data: detalles } = await supabase
-          .from("detalle_pedido")
-          .select("*")
-          .eq("id_pedido", pedido.id_pedido);
-
-        // Obtener pagos
-        const { data: pagos } = await supabase
-          .from("pago")
-          .select("*")
-          .eq("id_pedido", pedido.id_pedido);
-
-        return {
-          ...pedido,
-          detalles: detalles || [],
-          pagos: pagos || []
-        };
+        const { data: detalles } = await supabase.from("detalle_pedido").select("*").eq("id_pedido", pedido.id_pedido);
+        const { data: pagos } = await supabase.from("pago").select("*").eq("id_pedido", pedido.id_pedido);
+        return { ...pedido, detalles: detalles || [], pagos: pagos || [] };
       })
     );
 
-    res.json(pedidosCompletos);
+    res.json({ success: true, data: pedidosCompletos });
   } catch (error) {
-    console.error("Error al obtener pedidos:", error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// =============================================
-// CREAR PEDIDO (CON O SIN PAGO)
-// =============================================
+// POST CREAR PEDIDO (MODIFICADO PARA DIAGNÓSTICO)
 router.post("/", async (req, res) => {
-  const { id_cliente, observaciones, detalles, es_venta_directa, pago } = req.body;
+  const { id_cliente, detalles, es_venta_directa, pago, observaciones } = req.body;
+
+  console.log("📍 [POST] Iniciando creación de pedido...");
+  console.log("📦 Datos recibidos:", JSON.stringify({ id_cliente, total_detalles: detalles?.length }));
 
   try {
-    // Validar datos requeridos
-    if (!id_cliente || !detalles || detalles.length === 0) {
-      return res.status(400).json({ 
-        error: "Faltan datos requeridos: id_cliente y detalles son obligatorios" 
-      });
-    }
+    if (!detalles || detalles.length === 0) throw new Error("Sin detalles");
 
-    // Validar productos disponibles
-    for (const detalle of detalles) {
+    // 1. VALIDACIÓN DE PRODUCTOS
+    for (const d of detalles) {
+      const idBuscado = parseInt(d.id_producto);
+      console.log(`🔍 Buscando ID: ${idBuscado} (Tipo: ${typeof idBuscado})`);
+
+      // Intentamos buscar el producto específico
       const { data: producto, error } = await supabase
         .from("producto")
-        .select("cantidad, cantidad_disponible")
-        .eq("id_producto", detalle.id_producto)
-        .single();
+        .select("id_producto, nombre, cantidad")
+        .eq("id_producto", idBuscado)
+        .maybeSingle();
 
-      if (error || !producto) {
+      if (error) {
+        console.error("❌ Error de Supabase:", error);
+        return res.status(500).json({ success: false, message: "Error DB", error: error.message });
+      }
+
+      // === BLOQUE DE DIAGNÓSTICO ===
+      if (!producto) {
+        console.error(`❌ NO ENCONTRADO: El ID ${idBuscado} no existe para este Backend.`);
+        
+        // Vamos a ver qué IDs SÍ existen para probar si es la misma base de datos
+        const { data: muestra } = await supabase
+          .from("producto")
+          .select("id_producto, nombre")
+          .limit(5);
+        
+        console.log("👀 Muestra de productos que SÍ veo en esta DB:", muestra);
+        
         return res.status(404).json({ 
-          error: `Producto ${detalle.id_producto} no encontrado` 
+          success: false, 
+          // Enviamos la prueba al frontend
+          message: `Producto ${idBuscado} no encontrado. El servidor ve estos IDs: ${muestra.map(m=>m.id_producto).join(', ')}...` 
         });
       }
+      // ==============================
 
-      if (producto.cantidad_disponible < producto.cantidad) {
-        return res.status(400).json({ 
-          error: `Producto ${detalle.id_producto} no está completamente disponible` 
-        });
-      }
+      console.log(`✅ Producto encontrado: ${producto.nombre}`);
     }
 
-    // Determinar estado inicial
-    const estadoInicial = es_venta_directa ? 'pagado' : 'pendiente';
-
-    // Crear pedido
+    // 2. CREAR PEDIDO SI TODO ESTÁ BIEN
+    const estado = es_venta_directa ? 'pagado' : 'pendiente';
     const { data: nuevoPedido, error: errorPedido } = await supabase
       .from("pedido")
-      .insert([{
-        id_cliente,
-        observaciones: observaciones || null,
-        estado: estadoInicial
-      }])
+      .insert([{ id_cliente, observaciones, estado }])
       .select()
       .single();
 
     if (errorPedido) throw errorPedido;
 
-    // Crear detalles del pedido
-    const detallesFormateados = detalles.map(d => ({
+    // Insertar detalles
+    const detallesFormat = detalles.map(d => ({
       id_pedido: nuevoPedido.id_pedido,
       id_producto: d.id_producto,
-      cantidad: 1, // Siempre 1 pack
+      cantidad: 1,
       precio_unitario: d.precio_unitario
     }));
 
-    const { error: errorDetalles } = await supabase
-      .from("detalle_pedido")
-      .insert(detallesFormateados);
+    await supabase.from("detalle_pedido").insert(detallesFormat);
 
-    if (errorDetalles) {
-      // Revertir pedido si falla
-      await supabase.from("pedido").delete().eq("id_pedido", nuevoPedido.id_pedido);
-      throw errorDetalles;
-    }
-
-    // Si es venta directa, registrar pago
+    // Insertar Pago
     if (es_venta_directa && pago) {
-      const { error: errorPago } = await supabase
-        .from("pago")
-        .insert([{
-          id_pedido: nuevoPedido.id_pedido,
-          monto: pago.monto,
-          metodo: pago.metodo,
-          comprobante_url: pago.comprobante_url || null
-        }]);
-
-      if (errorPago) {
-        // Revertir todo si falla el pago
-        await supabase.from("detalle_pedido").delete().eq("id_pedido", nuevoPedido.id_pedido);
-        await supabase.from("pedido").delete().eq("id_pedido", nuevoPedido.id_pedido);
-        throw errorPago;
-      }
+      await supabase.from("pago").insert([{
+        id_pedido: nuevoPedido.id_pedido,
+        monto: pago.monto,
+        metodo: pago.metodo
+      }]);
     }
 
-    res.json({ 
-      message: es_venta_directa 
-        ? "Venta registrada exitosamente" 
-        : "Pedido creado exitosamente",
-      pedido: nuevoPedido 
-    });
+    res.json({ success: true, message: "Pedido creado", data: nuevoPedido });
+
   } catch (error) {
-    console.error("Error al crear pedido:", error);
-    res.status(500).json({ error: error.message });
+    console.error("🔥 Error General:", error);
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
@@ -159,10 +131,16 @@ router.get("/:id/detalles", async (req, res) => {
 
     if (error) throw error;
 
-    res.json(data);
+    res.json({
+      success: true,
+      data
+    });
   } catch (error) {
-    console.error("Error al obtener detalles:", error);
-    res.status(500).json({ error: error.message });
+    console.error("❌ Error al obtener detalles:", error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message 
+    });
   }
 });
 
@@ -174,14 +152,17 @@ router.put("/:id", async (req, res) => {
 
   try {
     if (!estado) {
-      return res.status(400).json({ error: "El campo estado es requerido" });
+      return res.status(400).json({ 
+        success: false,
+        message: "El campo estado es requerido" 
+      });
     }
 
-    // Validar estado
     const estadosValidos = ['pendiente', 'pagado', 'entregado', 'cancelado'];
     if (!estadosValidos.includes(estado)) {
       return res.status(400).json({ 
-        error: `Estado inválido. Debe ser: ${estadosValidos.join(', ')}` 
+        success: false,
+        message: `Estado inválido. Debe ser: ${estadosValidos.join(', ')}` 
       });
     }
 
@@ -194,10 +175,17 @@ router.put("/:id", async (req, res) => {
 
     if (error) throw error;
 
-    res.json({ message: "Estado actualizado exitosamente", pedido: data });
+    res.json({ 
+      success: true,
+      message: "Estado actualizado exitosamente", 
+      data 
+    });
   } catch (error) {
-    console.error("Error al actualizar pedido:", error);
-    res.status(500).json({ error: error.message });
+    console.error("❌ Error al actualizar pedido:", error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message 
+    });
   }
 });
 
@@ -217,7 +205,8 @@ router.delete("/:id", async (req, res) => {
 
     if (pedido.estado === 'pagado' || pedido.estado === 'entregado') {
       return res.status(400).json({ 
-        error: "No se puede eliminar un pedido pagado o entregado" 
+        success: false,
+        message: "No se puede eliminar un pedido pagado o entregado" 
       });
     }
 
@@ -236,11 +225,15 @@ router.delete("/:id", async (req, res) => {
     if (error) throw error;
 
     res.json({ 
-      message: "Pedido eliminado exitosamente. Productos disponibles nuevamente." 
+      success: true,
+      message: "🗑️ Pedido eliminado exitosamente. Productos disponibles nuevamente." 
     });
   } catch (error) {
-    console.error("Error al eliminar pedido:", error);
-    res.status(500).json({ error: error.message });
+    console.error("❌ Error al eliminar pedido:", error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message 
+    });
   }
 });
 
@@ -253,7 +246,8 @@ router.post("/:id/pago", async (req, res) => {
   try {
     if (!monto || !metodo) {
       return res.status(400).json({ 
-        error: "Faltan datos requeridos: monto y metodo son obligatorios" 
+        success: false,
+        message: "Faltan datos requeridos: monto y metodo son obligatorios" 
       });
     }
 
@@ -268,7 +262,8 @@ router.post("/:id/pago", async (req, res) => {
 
     if (pedido.estado !== 'pendiente') {
       return res.status(400).json({ 
-        error: `No se puede registrar pago. El pedido está en estado: ${pedido.estado}` 
+        success: false,
+        message: `No se puede registrar pago. El pedido está en estado: ${pedido.estado}` 
       });
     }
 
@@ -299,12 +294,16 @@ router.post("/:id/pago", async (req, res) => {
     }
 
     res.json({ 
-      message: "Pago registrado exitosamente y pedido marcado como pagado",
-      pago 
+      success: true,
+      message: "💰 Pago registrado exitosamente y pedido marcado como pagado",
+      data: pago 
     });
   } catch (error) {
-    console.error("Error al registrar pago:", error);
-    res.status(500).json({ error: error.message });
+    console.error("❌ Error al registrar pago:", error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message 
+    });
   }
 });
 
