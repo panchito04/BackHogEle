@@ -109,6 +109,12 @@ app.get('/', (req, res) => {
   });
 });
 
+// En tu server.js o index.js (Backend)
+app.get('/ping', (req, res) => {
+  console.log('Manteniendo servidor activo...');
+  res.send('pong');
+});
+
 // Manejo de errores 404
 app.use((req, res) => {
   res.status(404).json({ 
