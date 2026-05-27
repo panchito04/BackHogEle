@@ -7,24 +7,51 @@ const router = express.Router();
 // =============================================
 // OBTENER TODOS LOS PEDIDOS CON DETALLES Y PAGOS
 // =============================================
-// GET PEDIDOS (Se mantiene igual)
+// GET PEDIDOS - OPTIMIZADO (Sin N+1 consultas)
 router.get("/", async (req, res) => {
   try {
     const { data: pedidos, error } = await supabase
       .from("pedido")
-      .select("*")
+      .select(`
+        *,
+        usuario:id_usuario (
+          id_usuario,
+          nombre
+        )
+      `)
       .order("fecha", { ascending: false });
 
     if (error) throw error;
 
-    // Traer detalles y pagos
-    const pedidosCompletos = await Promise.all(
-      pedidos.map(async (pedido) => {
-        const { data: detalles } = await supabase.from("detalle_pedido").select("*").eq("id_pedido", pedido.id_pedido);
-        const { data: pagos } = await supabase.from("pago").select("*").eq("id_pedido", pedido.id_pedido);
-        return { ...pedido, detalles: detalles || [], pagos: pagos || [] };
-      })
-    );
+    // Obtener TODOS los detalles y TODOS los pagos en paralelo
+    const [ { data: todosDetalles }, { data: todosPagos } ] = await Promise.all([
+      supabase.from("detalle_pedido").select("*"),
+      supabase.from("pago").select("*")
+    ]);
+
+    // Agrupar en memoria por id_pedido (Complejidad O(N))
+    const detallesPorPedido = {};
+    todosDetalles?.forEach(d => {
+      if (d.id_pedido) {
+        if (!detallesPorPedido[d.id_pedido]) detallesPorPedido[d.id_pedido] = [];
+        detallesPorPedido[d.id_pedido].push(d);
+      }
+    });
+
+    const pagosPorPedido = {};
+    todosPagos?.forEach(p => {
+      if (p.id_pedido) {
+        if (!pagosPorPedido[p.id_pedido]) pagosPorPedido[p.id_pedido] = [];
+        pagosPorPedido[p.id_pedido].push(p);
+      }
+    });
+
+    // Mapear los pedidos con sus detalles y pagos en memoria
+    const pedidosCompletos = pedidos.map((pedido) => ({
+      ...pedido,
+      detalles: detallesPorPedido[pedido.id_pedido] || [],
+      pagos: pagosPorPedido[pedido.id_pedido] || []
+    }));
 
     res.json({ success: true, data: pedidosCompletos });
   } catch (error) {
@@ -32,12 +59,12 @@ router.get("/", async (req, res) => {
   }
 });
 
-// POST CREAR PEDIDO (MODIFICADO PARA DIAGNÓSTICO)
+// POST CREAR PEDIDO (MODIFICADO PARA DIAGNÓSTICO, CLIENTE DINÁMICO Y TRAZABILIDAD)
 router.post("/", async (req, res) => {
-  const { id_cliente, detalles, es_venta_directa, pago, observaciones } = req.body;
+  const { id_cliente, cliente_nombre, id_usuario, detalles, es_venta_directa, pago, observaciones } = req.body;
 
   console.log("📍 [POST] Iniciando creación de pedido...");
-  console.log("📦 Datos recibidos:", JSON.stringify({ id_cliente, total_detalles: detalles?.length }));
+  console.log("📦 Datos recibidos:", JSON.stringify({ id_cliente, cliente_nombre, id_usuario, total_detalles: detalles?.length }));
 
   try {
     if (!detalles || detalles.length === 0) throw new Error("Sin detalles");
@@ -82,11 +109,53 @@ router.post("/", async (req, res) => {
       console.log(`✅ Producto encontrado: ${producto.nombre}`);
     }
 
-    // 2. CREAR PEDIDO SI TODO ESTÁ BIEN
+    // 2. RESOLVER O CREAR CLIENTE DINÁMICAMENTE POR NOMBRE (SI SE PROVEE)
+    let finalIdCliente = id_cliente;
+
+    if (!finalIdCliente && cliente_nombre) {
+      const nombreLimpio = cliente_nombre.trim();
+      console.log(`👤 Buscando o creando cliente por nombre: "${nombreLimpio}"`);
+      
+      const { data: clienteExistente, error: errorBusqueda } = await supabase
+        .from("cliente")
+        .select("id_cliente")
+        .ilike("nombre", nombreLimpio)
+        .maybeSingle();
+
+      if (errorBusqueda) {
+        console.error("❌ Error al buscar cliente por nombre:", errorBusqueda);
+      }
+
+      if (clienteExistente) {
+        console.log(`✅ Cliente existente encontrado con ID: ${clienteExistente.id_cliente}`);
+        finalIdCliente = clienteExistente.id_cliente;
+      } else {
+        const { data: nuevoCliente, error: errorInsertCliente } = await supabase
+          .from("cliente")
+          .insert([{ nombre: nombreLimpio }])
+          .select()
+          .single();
+
+        if (errorInsertCliente) {
+          console.error("❌ Error al crear nuevo cliente:", errorInsertCliente);
+          throw errorInsertCliente;
+        }
+
+        console.log(`✨ Nuevo cliente creado con ID: ${nuevoCliente.id_cliente}`);
+        finalIdCliente = nuevoCliente.id_cliente;
+      }
+    }
+
+    // 3. CREAR PEDIDO SI TODO ESTÁ BIEN
     const estado = es_venta_directa ? 'pagado' : 'pendiente';
     const { data: nuevoPedido, error: errorPedido } = await supabase
       .from("pedido")
-      .insert([{ id_cliente, observaciones, estado }])
+      .insert([{ 
+        id_cliente: finalIdCliente || null, 
+        observaciones, 
+        estado, 
+        id_usuario: id_usuario || null 
+      }])
       .select()
       .single();
 

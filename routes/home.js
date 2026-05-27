@@ -8,14 +8,14 @@ router.get("/", async (req, res) => {
   try {
     console.log("📊 Iniciando carga de estadísticas...");
 
-    // Total de clientes
-    const { count: totalClientes, error: errorClientes } = await supabase
-      .from("cliente")
+    // Total de cajas (Lotes importados)
+    const { count: totalCajas, error: errorCajas } = await supabase
+      .from("caja")
       .select("*", { count: "exact", head: true });
 
-    if (errorClientes) {
-      console.error("❌ Error al contar clientes:", errorClientes);
-      throw errorClientes;
+    if (errorCajas) {
+      console.error("❌ Error al contar cajas:", errorCajas);
+      throw errorCajas;
     }
 
     // Total de productos únicos
@@ -113,6 +113,7 @@ router.get("/", async (req, res) => {
         fecha,
         estado,
         cliente:id_cliente (
+          // client details are fetched together in relationship
           nombre
         )
       `)
@@ -123,22 +124,27 @@ router.get("/", async (req, res) => {
       console.error("❌ Error al obtener pedidos recientes:", errorPedidosRecientes);
     }
 
-    // Calcular el total de cada pedido
+    // Calcular el total de cada pedido en una única consulta por lote
     const pedidosConTotal = [];
     if (pedidosRecientes && pedidosRecientes.length > 0) {
-      for (const pedido of pedidosRecientes) {
-        const { data: detalles } = await supabase
-          .from("detalle_pedido")
-          .select("subtotal")
-          .eq("id_pedido", pedido.id_pedido);
+      const { data: todosDetallesRecientes } = await supabase
+        .from("detalle_pedido")
+        .select("id_pedido, subtotal")
+        .in("id_pedido", pedidosRecientes.map(p => p.id_pedido));
 
-        const total = detalles?.reduce((sum, d) => sum + parseFloat(d.subtotal || 0), 0) || 0;
+      const subtotalesPorPedido = {};
+      todosDetallesRecientes?.forEach(d => {
+        if (d.id_pedido) {
+          subtotalesPorPedido[d.id_pedido] = (subtotalesPorPedido[d.id_pedido] || 0) + parseFloat(d.subtotal || 0);
+        }
+      });
 
+      pedidosRecientes.forEach(pedido => {
         pedidosConTotal.push({
           ...pedido,
-          total: total
+          total: subtotalesPorPedido[pedido.id_pedido] || 0
         });
-      }
+      });
     }
 
     console.log("✅ Estadísticas cargadas exitosamente");
@@ -146,7 +152,7 @@ router.get("/", async (req, res) => {
     // Respuesta exitosa
     res.json({
       totales: {
-        clientes: totalClientes || 0,
+        cajas: totalCajas || 0,
         productos: totalProductos || 0,
         pedidos: totalPedidos || 0,
         ingresos: ingresosTotales

@@ -7,7 +7,7 @@ import { supabase } from "../server.js";
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-// ✅ GET TODOS LOS PRODUCTOS - Formato estandarizado
+// ✅ GET TODOS LOS PRODUCTOS - Formato estandarizado (unido con usuario) - OPTIMIZADO (Sin N+1 consultas)
 router.get("/", async (req, res) => {
   try {
     const { data: productos, error } = await supabase
@@ -24,28 +24,41 @@ router.get("/", async (req, res) => {
           codigo,
           descripcion,
           fecha_llegada
+        ),
+        usuario:id_usuario (
+          id_usuario,
+          nombre
         )
       `)
       .order("fecha_creacion", { ascending: false });
     
     if (error) throw error;
     
-    const productosConEstado = await Promise.all(
-      productos.map(async (producto) => {
-        const { count: vendido } = await supabase
-          .from("detalle_pedido")
-          .select("*", { count: "exact", head: true })
-          .eq("id_producto", producto.id_producto);
-        
-        return {
-          ...producto,
-          vendido: vendido > 0,
-          disponible: (producto.cantidad - vendido) > 0,
-          cantidad_disponible: producto.cantidad - vendido,
-          cantidad_vendida: vendido
-        };
-      })
-    );
+    // Obtener todos los detalles de pedido en una única consulta para agrupar en memoria
+    const { data: todosVendidos, error: errorVendidos } = await supabase
+      .from("detalle_pedido")
+      .select("id_producto");
+
+    if (errorVendidos) throw errorVendidos;
+
+    // Agrupar cantidades vendidas por id_producto en memoria (Complejidad O(N))
+    const ventasPorProducto = {};
+    todosVendidos?.forEach(item => {
+      if (item.id_producto) {
+        ventasPorProducto[item.id_producto] = (ventasPorProducto[item.id_producto] || 0) + 1;
+      }
+    });
+    
+    const productosConEstado = productos.map((producto) => {
+      const vendido = ventasPorProducto[producto.id_producto] || 0;
+      return {
+        ...producto,
+        vendido: vendido > 0,
+        disponible: (producto.cantidad - vendido) > 0,
+        cantidad_disponible: producto.cantidad - vendido,
+        cantidad_vendida: vendido
+      };
+    });
     
     // ✅ CAMBIO: Devolver con formato estándar
     res.json({
@@ -63,7 +76,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-// ✅ GET PRODUCTO POR ID
+// ✅ GET PRODUCTO POR ID (unido con usuario)
 router.get("/:id", async (req, res) => {
   try {
     const { data: producto, error } = await supabase
@@ -80,6 +93,10 @@ router.get("/:id", async (req, res) => {
           codigo,
           descripcion,
           fecha_llegada
+        ),
+        usuario:id_usuario (
+          id_usuario,
+          nombre
         )
       `)
       .eq("id_producto", req.params.id)
@@ -164,7 +181,7 @@ router.get("/stats/resumen", async (req, res) => {
 // ✅ POST CREAR PRODUCTO
 router.post("/", upload.single("imagen"), async (req, res) => {
   try {
-    const { nombre, descripcion, precio, id_categoria, id_caja, cantidad } = req.body;
+    const { nombre, descripcion, precio, id_categoria, id_caja, cantidad, id_usuario } = req.body;
     let imagen_url = req.body.imagen_url || null;
     
     // Validar cantidad
@@ -211,7 +228,8 @@ router.post("/", upload.single("imagen"), async (req, res) => {
         id_categoria: id_categoria || null,
         id_caja: id_caja || null,
         imagen_url,
-        cantidad: cantidadFinal
+        cantidad: cantidadFinal,
+        id_usuario: id_usuario || null
       }])
       .select(`
         *,
@@ -224,6 +242,10 @@ router.post("/", upload.single("imagen"), async (req, res) => {
           id_caja,
           codigo,
           descripcion
+        ),
+        usuario:id_usuario (
+          id_usuario,
+          nombre
         )
       `)
       .single();

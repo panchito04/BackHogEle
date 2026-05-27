@@ -50,21 +50,29 @@ router.get("/:id", async (req, res) => {
     
     if (error) throw error;
     
-    // Verificar qué productos están vendidos
-    const productosConEstado = await Promise.all(
-      (caja.productos || []).map(async (producto) => {
-        const { count: vendido } = await supabase
-          .from("detalle_pedido")
-          .select("*", { count: "exact", head: true })
-          .eq("id_producto", producto.id_producto);
-        
-        return {
-          ...producto,
-          vendido: vendido > 0,
-          disponible: vendido === 0
-        };
-      })
-    );
+    // Obtener todos los detalles de pedido en una única consulta para agrupar en memoria
+    const { data: todosVendidos, error: errorVendidos } = await supabase
+      .from("detalle_pedido")
+      .select("id_producto");
+
+    if (errorVendidos) throw errorVendidos;
+
+    const ventasPorProducto = {};
+    todosVendidos?.forEach(item => {
+      if (item.id_producto) {
+        ventasPorProducto[item.id_producto] = (ventasPorProducto[item.id_producto] || 0) + 1;
+      }
+    });
+
+    // Verificar qué productos están vendidos en memoria (Complejidad O(N))
+    const productosConEstado = (caja.productos || []).map((producto) => {
+      const vendido = ventasPorProducto[producto.id_producto] || 0;
+      return {
+        ...producto,
+        vendido: vendido > 0,
+        disponible: vendido === 0
+      };
+    });
     
     res.json({
       ...caja,
